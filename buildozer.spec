@@ -1,6 +1,6 @@
 [app]
-title = KingTracker
-package.name = kingtracker
+title = Tracking app
+package.name = Trackingapp
 package.domain = org.test
 source.dir =.
 source.include_exts = py,png,jpg,kv,atlas
