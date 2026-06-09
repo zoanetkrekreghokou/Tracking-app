@@ -21,12 +21,16 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      # SOLUTION : Installe proprement le SDK Android fonctionnel et accepte les licences
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Install system dependencies
         run: |
           sudo apt update
           sudo apt install -y git zip unzip autoconf libtool pkg-config zlib1g-dev \
           libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev \
-          build-essential ccache openjdk-17-jdk
+          build-essential ccache
 
       - name: Install Python dependencies
         run: |
@@ -52,26 +56,10 @@ jobs:
       - name: Build APK with Buildozer
         env:
           APP_ANDROID_ACCEPT_SDK_LICENSE: "1"
+          # On indique à Buildozer d'utiliser le SDK propre configuré par GitHub Actions
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
         run: |
-          # 1. Forcer la création de l'arborescence attendue par Buildozer
-          mkdir -p ~/.buildozer/android/platform/android-sdk/tools/bin
-          
-          # 2. Télécharger manuellement les outils de ligne de commande officiels d'Android (version stable)
-          cd ~/.buildozer/android/platform/android-sdk
-          curl -O https://google.com
-          unzip -q commandlinetools-linux-9477386_latest.zip
-          
-          # 3. Réorganiser les fichiers pour correspondre à l'ancienne structure "tools" requise par le moteur de Buildozer
-          mv cmdline-tools/* tools/ || true
-          rm -rf cmdline-tools commandlinetools-linux-9477386_latest.zip
-          
-          # 4. Pré-accepter globalement les licences pour éviter tout blocage interactif
-          mkdir -p licenses
-          echo -e "\n247ae265540dd1f9d431d1d01848a54d1912974a" > licenses/android-sdk-license
-          echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd" > licenses/android-sdk-preview-license
-          
-          # 5. Revenir à la racine du projet et lancer la compilation
-          cd $GITHUB_WORKSPACE
+          # Lancement direct et propre du build
           python3 -m buildozer android debug
 
       - name: Upload APK Artifact
