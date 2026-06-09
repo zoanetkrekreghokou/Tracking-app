@@ -21,10 +21,6 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      # AJOUT : Toutes les dépendances de compilation natives requises pour OpenCV/Numpy
       - name: Install system dependencies
         run: |
           sudo apt update
@@ -35,7 +31,8 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install buildozer cython virtualenv pathspec
+          # Installation des paquets requis et forçage d'une version compatible de 'sh'
+          pip install buildozer cython virtualenv pathspec "sh>=1.14,<2.0"
 
       - name: Cache Buildozer global dir
         uses: actions/cache@v4
@@ -56,10 +53,14 @@ jobs:
       - name: Build APK with Buildozer
         env:
           APP_ANDROID_ACCEPT_SDK_LICENSE: "1"
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
         run: |
-          # Nettoyer d'éventuels restes de builds cassés dans le cache local
-          python3 -m buildozer android clean
-          # Lancer la compilation
+          # Lancement direct de la compilation (sans étape 'clean' qui casse le script au premier build)
           python3 -m buildozer android debug
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TrackingApp-APK
+          path: bin/*.apk
+          if-no-files-found: error
           
