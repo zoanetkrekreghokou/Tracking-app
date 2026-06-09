@@ -52,16 +52,26 @@ jobs:
       - name: Build APK with Buildozer
         env:
           APP_ANDROID_ACCEPT_SDK_LICENSE: "1"
-          ANDROID_HOME: "/home/runner/.buildozer/android/platform/android-sdk"
         run: |
-          # 1. Créer le répertoire des licences pour forcer l'acceptation globale avant le build
-          mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
+          # 1. Forcer la création de l'arborescence attendue par Buildozer
+          mkdir -p ~/.buildozer/android/platform/android-sdk/tools/bin
           
-          # Injecter directement les empreintes des licences Google acceptées (standard Android CI)
-          echo -e "\n247ae265540dd1f9d431d1d01848a54d1912974a" > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
-          echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd" > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
+          # 2. Télécharger manuellement les outils de ligne de commande officiels d'Android (version stable)
+          cd ~/.buildozer/android/platform/android-sdk
+          curl -O https://google.com
+          unzip -q commandlinetools-linux-9477386_latest.zip
           
-          # 2. Exécuter Buildozer avec l'argument automatique pour accepter les licences manquantes
+          # 3. Réorganiser les fichiers pour correspondre à l'ancienne structure "tools" requise par le moteur de Buildozer
+          mv cmdline-tools/* tools/ || true
+          rm -rf cmdline-tools commandlinetools-linux-9477386_latest.zip
+          
+          # 4. Pré-accepter globalement les licences pour éviter tout blocage interactif
+          mkdir -p licenses
+          echo -e "\n247ae265540dd1f9d431d1d01848a54d1912974a" > licenses/android-sdk-license
+          echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd" > licenses/android-sdk-preview-license
+          
+          # 5. Revenir à la racine du projet et lancer la compilation
+          cd $GITHUB_WORKSPACE
           python3 -m buildozer android debug
 
       - name: Upload APK Artifact
