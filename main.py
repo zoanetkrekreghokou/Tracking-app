@@ -1,133 +1,98 @@
 from kivy.app import App
 from kivy.uix.image import Image
+from kivy.uix.button import Button
+from kivy.uix.boxlayout import BoxLayout
 from kivy.clock import Clock
 from kivy.graphics.texture import Texture
+from kivy.core.window import Window
 import cv2
 import numpy as np
-import time
 
-# Gestion permissions Android - remplace l'ancien android.activity.check_permission
-try:
-    from android.permissions import request_permissions, Permission
-    ANDROID = True
-except ImportError:
-    ANDROID = False
+# Utilisation du tracker CSRT (plus précis) ou KCF (plus rapide)
+TRACKER_TYPE = 'CSRT'  # ou 'KCF'
 
-# Plages HSV calibrées pour tes gobelets King Thimbles
-LOWER_CUP = np.array([8, 70, 40])
-UPPER_CUP = np.array([25, 255, 180])
-LOWER_CROWN = np.array([20, 100, 200])
-UPPER_CROWN = np.array([35, 255, 255])
-
-class KingThimblesTracker:
+class ObjectTracker:
     def __init__(self):
-        self.cible = None
-        self.last_seen = time.time()
-        self.dx, self.dy = 0, 0
-        self.pos_history = []
+        self.cap = None
+        self.tracker = None
+        self.tracking = False
+        self.frame = None
+        self.bbox = None
 
-    def capture_screen_android(self):
-        # Capture d’écran Android via pyjnius
-        from jnius import autoclass
-        PythonActivity = autoclass('org.kivy.android.PythonActivity')
-        activity = PythonActivity.mActivity
-        view = activity.getWindow().getDecorView().getRootView()
+    def init_camera(self, cam_id=0):
+        self.cap = cv2.VideoCapture(cam_id)
+        # Réduire la résolution pour la performance
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
-        from android.graphics import Bitmap, Canvas
-        bitmap = Bitmap.createBitmap(view.getWidth(), view.getHeight(),
-                                     Bitmap.Config.ARGB_8888)
-        canvas = Canvas(bitmap)
-        view.draw(canvas)
+    def select_roi(self, frame):
+        """Permet à l'utilisateur de sélectionner une zone (à faire dans l'app Kivy via un canvas)"""
+        # Ici on simule : on prend la moitié centrale comme zone par défaut
+        h, w = frame.shape[:2]
+        self.bbox = (w//4, h//4, w//2, h//2)
+        return self.bbox
 
-        # Convertit Bitmap -> numpy array BGR
-        buffer = bitmap.getPixels()
-        frame = np.array(buffer, dtype=np.uint8).reshape(view.getHeight(), view.getWidth(), 4)
-        frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)
-        return frame
-
-    def detecter_gobelets(self, frame):
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        mask_cup = cv2.inRange(hsv, LOWER_CUP, UPPER_CUP)
-        mask_crown = cv2.inRange(hsv, LOWER_CROWN, UPPER_CROWN)
-        mask = cv2.bitwise_or(mask_cup, mask_crown)
-
-        kernel = np.ones((5,5), np.uint8)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        objets = []
-        for cnt in contours:
-            area = cv2.contourArea(cnt)
-            if 800 < area < 15000:
-                x, y, w, h = cv2.boundingRect(cnt)
-                cx, cy = x + w//2, y + h//2
-                objets.append({'x': cx, 'y': cy, 'w': w, 'h': h})
-        return objets
+    def init_tracker(self, frame, bbox):
+        if TRACKER_TYPE == 'CSRT':
+            self.tracker = cv2.TrackerCSRT_create()
+        else:
+            self.tracker = cv2.TrackerKCF_create()
+        self.tracker.init(frame, bbox)
+        self.tracking = True
 
     def update(self, frame):
-        objets = self.detecter_gobelets(frame)
-
-        if len(self.pos_history) >= 2:
-            self.dx = self.pos_history[-1][0] - self.pos_history[-2][0]
-            self.dy = self.pos_history[-1][1] - self.pos_history[-2][1]
-
-        pred_x, pred_y = 0, 0
-        if self.cible:
-            pred_x = self.cible['x'] + self.dx
-            pred_y = self.cible['y'] + self.dy
-            cv2.circle(frame, (int(pred_x), int(pred_y)), 8, (0,255,255), -1)
-
-        if objets:
-            if self.cible:
-                meilleur = min(objets, key=lambda o: ((o['x']-pred_x)**2 + (o['y']-pred_y)**2)**0.5)
-                distance = ((meilleur['x']-pred_x)**2 + (meilleur['y']-pred_y)**2)**0.5
-                score = max(0, 100 - distance/2)
-                if score > 60:
-                    self.cible = meilleur
-                    self.last_seen = time.time()
-            else:
-                self.cible = objets[0]
-                self.last_seen = time.time()
-
-        if self.cible:
-            cv2.rectangle(frame,
-                         (self.cible['x']-self.cible['w']//2, self.cible['y']-self.cible['h']//2),
-                         (self.cible['x']+self.cible['w']//2, self.cible['y']+self.cible['h']//2),
-                         (0,255,0), 3)
-            self.pos_history.append((self.cible['x'], self.cible['y']))
-            if len(self.pos_history) > 5:
-                self.pos_history.pop(0)
-        elif time.time() - self.last_seen > 1:
-            self.cible = None
-            self.pos_history = []
-
+        if not self.tracking or self.tracker is None:
+            return frame
+        success, self.bbox = self.tracker.update(frame)
+        if success:
+            p1 = (int(self.bbox[0]), int(self.bbox[1]))
+            p2 = (int(self.bbox[0] + self.bbox[2]), int(self.bbox[1] + self.bbox[3]))
+            cv2.rectangle(frame, p1, p2, (0,255,0), 2)
+            # Optionnel : centre
+            cx = int(self.bbox[0] + self.bbox[2]/2)
+            cy = int(self.bbox[1] + self.bbox[3]/2)
+            cv2.circle(frame, (cx, cy), 5, (0,0,255), -1)
+        else:
+            cv2.putText(frame, "Objet perdu", (50,50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,255),2)
         return frame
 
-class TrackerApp(App):
+class TrackerCamApp(App):
     def build(self):
-        # Demande les permissions Android au démarrage
-        if ANDROID:
-            request_permissions([
-                Permission.CAMERA,
-                Permission.READ_EXTERNAL_STORAGE,
-                Permission.MANAGE_EXTERNAL_STORAGE,
-                Permission.SYSTEM_ALERT_WINDOW
-            ])
+        layout = BoxLayout(orientation='vertical')
+        self.image = Image()
+        self.btn_select = Button(text="Sélectionner objet (ROI)", size_hint=(1, 0.1))
+        self.btn_select.bind(on_press=self.start_selection)
+        layout.add_widget(self.image)
+        layout.add_widget(self.btn_select)
+        self.tracker = ObjectTracker()
+        self.tracker.init_camera()
+        Clock.schedule_interval(self.update, 1/30)  # 30 fps
+        return layout
 
-        self.img = Image()
-        self.tracker = KingThimblesTracker()
-        Clock.schedule_interval(self.update, 1/30)
-        return self.img
+    def start_selection(self, instance):
+        # À compléter : utiliser un widget de dessin pour sélectionner
+        # Pour simplifier, on prend une zone fixe
+        ret, frame = self.tracker.cap.read()
+        if ret:
+            h, w = frame.shape[:2]
+            bbox = (w//3, h//3, w//3, h//3)
+            self.tracker.init_tracker(frame, bbox)
 
     def update(self, dt):
-        frame = self.tracker.capture_screen_android()
+        ret, frame = self.tracker.cap.read()
+        if not ret:
+            return
+        frame = cv2.flip(frame, 1)  # effet miroir
         frame = self.tracker.update(frame)
-
+        # Convertir pour Kivy
         buf = cv2.flip(frame, 0).tobytes()
         texture = Texture.create(size=(frame.shape[1], frame.shape[0]), colorfmt='bgr')
         texture.blit_buffer(buf, colorfmt='bgr', bufferfmt='ubyte')
-        self.img.texture = texture
+        self.image.texture = texture
+
+    def on_stop(self):
+        if self.tracker.cap:
+            self.tracker.cap.release()
 
 if __name__ == '__main__':
-    TrackerApp().run()
+    TrackerCamApp().run()
