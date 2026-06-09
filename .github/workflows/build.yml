@@ -1,63 +1,49 @@
-name: Build APK
+[app]
 
-on:
-  workflow_dispatch:
+# Nom de l'application affiché sur le téléphone
+title = Tracking app
 
-jobs:
-  build:
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+# Identifiant unique du paquet
+package.name = Trackingapp
+package.domain = org.test
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+# Emplacement du code source
+source.dir = .
 
-      - name: Setup Java JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
+# Extensions de fichiers à inclure dans l'APK
+source.include_exts = py,png,jpg,kv,atlas
 
-      - name: Install system dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y git zip unzip autoconf libtool pkg-config zlib1g-dev \
-          libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev \
-          build-essential ccache gperf g++ g++-multilib libmpc-dev libmpfr-dev libgmp-dev gfortran
+# Version de l'application
+version = 0.1
 
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install buildozer cython virtualenv pathspec "sh>=1.14,<2.0"
+# Recettes de compilation natives requises (l'ordre est important)
+requirements = python3,kivy,opencv,numpy,pyjnius
 
-      - name: Cache Buildozer global dir
-        uses: actions/cache@v4
-        with:
-          path: ~/.buildozer
-          key: buildozer-global-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
-          restore-keys: |
-            buildozer-global-${{ runner.os }}-
+# Force l'affichage en mode Portrait
+orientation = portrait
 
-      - name: Cache Buildozer local dir
-        uses: actions/cache@v4
-        with:
-          path: .buildozer
-          key: buildozer-local-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
-          restore-keys: |
-            buildozer-local-${{ runner.os }}-
+# Nettoyage et mise à niveau des permissions pour Android 11 à 14+
+android.permissions = CAMERA, READ_EXTERNAL_STORAGE, MANAGE_EXTERNAL_STORAGE, SYSTEM_ALERT_WINDOW
 
-      - name: Build APK with Buildozer
-        env:
-          APP_ANDROID_ACCEPT_SDK_LICENSE: "1"
-        run: |
-          python3 -m buildozer android debug
+# Niveau de l'API Android cible et minimum requis
+android.api = 34
+android.minapi = 24
 
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: TrackingApp-APK
-          path: bin/*.apk
-          if-no-files-found: error
+# Version du NDK stable fortement recommandée pour OpenCV / NumPy
+android.ndk = 26b
+
+# Variable d'environnement CRITIQUE pour forcer la compilation propre de NumPy
+android.ext_build_env = P4A_NUMPY_BUILD=1
+
+# Compilation ciblée sur l'architecture moderne des smartphones (64-bit)
+android.archs = arm64-v8a
+
+# Filtres de logs utiles pour déboguer votre application avec adb logcat
+android.logcat_filters = *:S python:D
+
+# Indique à Buildozer d'accepter automatiquement les licences d'API supérieures
+android.accept_sdk_license = True
+
+[buildozer]
+# Niveau de log maximum pour voir le détail des erreurs dans GitHub Actions
+log_level = 2
