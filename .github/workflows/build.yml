@@ -21,16 +21,16 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # SOLUTION : Installe proprement le SDK Android fonctionnel et accepte les licences
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      # AJOUT : Toutes les dépendances de compilation natives requises pour OpenCV/Numpy
       - name: Install system dependencies
         run: |
           sudo apt update
           sudo apt install -y git zip unzip autoconf libtool pkg-config zlib1g-dev \
           libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev \
-          build-essential ccache
+          build-essential ccache gperf g++ g++-multilib libmpc-dev libmpfr-dev libgmp-dev
 
       - name: Install Python dependencies
         run: |
@@ -56,15 +56,10 @@ jobs:
       - name: Build APK with Buildozer
         env:
           APP_ANDROID_ACCEPT_SDK_LICENSE: "1"
-          # On indique à Buildozer d'utiliser le SDK propre configuré par GitHub Actions
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
         run: |
-          # Lancement direct et propre du build
+          # Nettoyer d'éventuels restes de builds cassés dans le cache local
+          python3 -m buildozer android clean
+          # Lancer la compilation
           python3 -m buildozer android debug
-
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: TrackingApp-APK
-          path: bin/*.apk
-          if-no-files-found: error
+          
